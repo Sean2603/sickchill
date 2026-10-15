@@ -1,13 +1,10 @@
 # Fork-only image build: publishes ghcr.io/<owner>/sickchill:<branch> using only GITHUB_TOKEN
 # (no Docker Hub secrets needed). Point Portainer at that tag and recreate with "re-pull image".
+# Manual only: Actions -> GHCR Image -> Run workflow, then pick the branch to build.
 
 name: GHCR Image
 
 on:
-  push:
-    branches:
-      - master
-      - "feature_*"
   workflow_dispatch:
     inputs:
       platforms:
