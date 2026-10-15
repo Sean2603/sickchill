@@ -1,0 +1,18 @@
+# Fast rebuild for code-only changes: copies this checkout's sickchill/ package over an
+# existing full image instead of rebuilding dependencies (no emulated pip/poetry steps).
+# Use the full Dockerfile again whenever pyproject.toml dependencies change.
+#
+# docker buildx build --builder desktop-linux --platform linux/arm64 -f Dockerfile.overlay \
+#   --build-arg GIT_SHA=$(git rev-parse HEAD) -t sickchill:feature_TBA --load .
+#
+# BASE defaults to the GHCR image; a local image also works with the desktop-linux builder
+# (e.g. --build-arg BASE=sickchill:full-base). The "sc" container builder cannot see local images.
+
+ARG BASE=ghcr.io/sean2603/sickchill:feature_TBA
+FROM ${BASE}
+
+ARG GIT_SHA=unknown
+ARG GIT_BRANCH=feature_TBA
+
+COPY sickchill/ /.venv/lib/python3.13/site-packages/sickchill/
+RUN printf '%s %s\n' "$GIT_BRANCH" "$GIT_SHA" > /.venv/lib/python3.13/site-packages/sickchill/_revision.txt
