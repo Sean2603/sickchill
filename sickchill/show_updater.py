@@ -26,6 +26,7 @@ class ShowUpdater(object):
             logger.info("ShowUpdater for TVDB API V4 starting")
 
             cache_db_con = db.DBConnection("cache.db")
+            full_update_ids = set()
             for index, provider in sickchill.indexer:
                 database_result = cache_db_con.select("SELECT `time` FROM lastUpdate WHERE provider = ?", [provider.name])
                 last_update = int(database_result[0][0]) if database_result else 0
@@ -102,6 +103,7 @@ class ShowUpdater(object):
                                 logger.debug(f"clear_episode_cache failed for {cur_show.indexerid}: {error}")
                             pi_list.append(cur_show.update(force))
                             full_updates += 1
+                            full_update_ids.add(cur_show.indexerid)
                             full_update_names.append(getattr(cur_show, "name", None) or str(cur_show.indexerid))
                         elif not skip_update:
                             # Forced runs (e.g. Manage Searches Force Show Updater) bypass mtime/interval gate
@@ -145,6 +147,9 @@ class ShowUpdater(object):
                 else:
                     logger.info(f"Preserving lastUpdate for {provider.name} after feed failure")
 
+            if not (settings.stopping or settings.restarting):
+                self._queue_tba_maintenance(full_update_ids)
+
             # After a normal daily run, nudge next start_time.minute by +0..20 (wrap if >60)
             # and mark today's slot done (lastRun) so Scheduler.run will not fire again today.
             if not force:
@@ -153,6 +158,35 @@ class ShowUpdater(object):
             logger.exception(error)
 
         self.amActive = False
+
+    @staticmethod
+    def _queue_tba_maintenance(full_update_ids):
+        """
+        Queue a TBA name refresh for shows with episodes still titled TBA or files still named TBA.
+        The TBA job also renames TBA-named files once titles are known. Shows getting a full
+        update today are left to it; their TBA-named files are picked up on the next run.
+        """
+        from sickchill.helper.exceptions import CantUpdateShowException
+        from sickchill.show.Show import Show
+        from sickchill.tv import TVShow
+
+        queued = []
+        for show_id in TVShow.tba_episode_report():
+            if show_id in full_update_ids:
+                continue
+            show_obj = Show.find(settings.show_list, show_id)
+            if not show_obj or show_obj.paused:
+                continue
+            try:
+                settings.showQueueScheduler.action.download_tba_names(show_obj, front=False, notify=False)
+                queued.append(show_obj.name)
+            except CantUpdateShowException as error:
+                logger.debug(f"Skipping daily TBA refresh for {show_obj.name}: {error}")
+            except Exception as error:
+                logger.warning(f"Daily TBA refresh could not be queued for {show_obj.name}: {error}")
+
+        if queued:
+            logger.info(f"ShowUpdater queued TBA refresh for {len(queued)} show(s): {', '.join(queued)}")
 
     @staticmethod
     def _bump_next_start_minute():

@@ -189,7 +189,7 @@ class ShowQueue(generic_queue.GenericQueue):
         self.add_item(queue_item_obj, front=True)
         return queue_item_obj
 
-    def download_tba_names(self, show: "TVShow") -> "ShowQueueItem":
+    def download_tba_names(self, show: "TVShow", front: bool = True, notify: bool = True) -> "ShowQueueItem":
         if self.is_being_added(show) or self.is_being_removed(show):
             raise CantUpdateShowException(f"{show.name} is being added or removed; cannot refresh TBA names now.")
 
@@ -211,8 +211,8 @@ class ShowQueue(generic_queue.GenericQueue):
                 return promoted
             raise CantUpdateShowException(f"{show.name} already has a TBA name update queued.")
 
-        queue_item_obj = QueueItemTBANames(show)
-        self.add_item(queue_item_obj, front=True)
+        queue_item_obj = QueueItemTBANames(show, notify=notify)
+        self.add_item(queue_item_obj, front=front)
         return queue_item_obj
 
     def add_show(
@@ -740,9 +740,11 @@ class QueueItemSubtitle(ShowQueueItem):
 
 
 class QueueItemTBANames(ShowQueueItem):
-    def __init__(self, show: "TVShow" = None):
+    def __init__(self, show: "TVShow" = None, notify: bool = True):
         super(QueueItemTBANames, self).__init__(ShowQueueActions.TBA_NAMES, show)
         self.priority = generic_queue.QueuePriorities.HIGH
+        # Scheduled runs only notify when something changed
+        self.notify = notify
 
     def run(self):
         super(QueueItemTBANames, self).run()
@@ -750,12 +752,16 @@ class QueueItemTBANames(ShowQueueItem):
         logger.info(f"Refreshing TBA episode names for {self.show.name}")
         try:
             updated_count = self.show.update_tba_names()
-            if updated_count:
+            # Files post-processed while the title was TBA keep that name; rename them now the title is known
+            renamed_count = self.show.rename_tba_files()
+            if updated_count or renamed_count:
                 ui.notifications.message(
                     _("Updated"),
-                    _("Updated {count} TBA episode name(s) for {show}").format(count=updated_count, show=self.show.name),
+                    _("Updated {count} TBA episode name(s) and renamed {renamed} file(s) for {show}").format(
+                        count=updated_count, renamed=renamed_count, show=self.show.name
+                    ),
                 )
-            else:
+            elif self.notify:
                 ui.notifications.message(
                     _("No updates"),
                     _("No TBA episode names were updated for {show}").format(show=self.show.name),

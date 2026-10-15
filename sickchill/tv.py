@@ -348,6 +348,62 @@ class TVShow(object):
                 entry[key].append(dict(row))
         return report
 
+    def rename_episode_files(self, episodes) -> None:
+        """
+        Rename episode files (with their multi-episode siblings) to match the naming pattern.
+
+        :param episodes: Iterable of "SxE" strings
+        """
+        main_db_con = db.DBConnection()
+        for cur_ep in episodes:
+            ep_info = cur_ep.split("x")
+
+            # this is probably the worst possible way to deal with double eps, but I've kinda painted myself into a corner here with this stupid database
+            ep_result = main_db_con.select(
+                "SELECT location FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?", [self.indexerid, ep_info[0], ep_info[1]]
+            )
+            if not ep_result:
+                logger.warning(f"Unable to find an episode for {self.indexerid}: {cur_ep} , skipping")
+                continue
+            related_eps_result = main_db_con.select(
+                "SELECT season, episode FROM tv_episodes WHERE location = ? AND episode != ?", [ep_result[0]["location"], ep_info[1]]
+            )
+
+            root_ep_obj = self.get_episode(ep_info[0], ep_info[1])
+            root_ep_obj.related_episodes = []
+
+            for cur_related_ep in related_eps_result:
+                related_ep_obj = self.get_episode(cur_related_ep["season"], cur_related_ep["episode"])
+                if related_ep_obj not in root_ep_obj.related_episodes:
+                    root_ep_obj.related_episodes.append(related_ep_obj)
+
+            root_ep_obj.rename()
+
+    def rename_tba_files(self) -> int:
+        """
+        Rename files still named after a TBA title once the episode has its real name.
+        Skipped when episode renaming is disabled in post-processing settings.
+
+        :return: Number of episodes renamed
+        """
+        if not settings.RENAME_EPISODES:
+            return 0
+
+        try:
+            self.location
+        except ShowDirectoryNotFoundException:
+            return 0
+
+        rows = db.DBConnection().select(
+            "SELECT season, episode, location FROM tv_episodes WHERE showid = ? AND name != ? AND location != '' AND location GLOB '*TBA*'",
+            [self.indexerid, "TBA"],
+        )
+        episodes = [f"{row['season']}x{row['episode']}" for row in rows if "TBA" in os.path.basename(row["location"])]
+        if episodes:
+            logger.info(f"Renaming {len(episodes)} TBA-named file(s) for {self.name}")
+            self.rename_episode_files(episodes)
+        return len(episodes)
+
     @staticmethod
     def _unknown_quality_statuses() -> list:
         return [Quality.compositeStatus(DOWNLOADED, Quality.UNKNOWN), Quality.compositeStatus(ARCHIVED, Quality.UNKNOWN)]
@@ -520,6 +576,7 @@ class TVShow(object):
             main_db_con.mass_action(sql_l)
 
         logger.info(f"Updated {updated_count} TBA episode(s) for {self.name} (still TBA on TVDB: {skipped_still_tba})")
+
         return updated_count
 
     def update(self, force: bool = False, front: bool = False) -> tuple[Union[str, None], "TVShow"]:
