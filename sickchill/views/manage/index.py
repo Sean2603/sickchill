@@ -2,6 +2,7 @@ import json
 import ntpath
 import os
 import posixpath
+import threading
 
 from sickchill import logger, settings
 from sickchill.helper import episode_num, try_int
@@ -13,6 +14,33 @@ from sickchill.tv import TVShow
 from sickchill.views.common import PageTemplate
 from sickchill.views.home import Home, WebRoot
 from sickchill.views.routes import Route
+
+
+# Background "fix unknown quality" job (reads media files, so kept off the web thread)
+_quality_fix_lock = threading.Lock()
+
+
+def _fix_unknown_quality(show_objects):
+    with _quality_fix_lock:
+        fixed_total = 0
+        unknown_total = 0
+        lines = []
+        for show_obj in show_objects:
+            try:
+                fixed, still_unknown = show_obj.fix_unknown_quality()
+            except Exception as error:
+                logger.exception(f"Fixing unknown quality failed for {show_obj.name}: {error}")
+                lines.append(_("{show_name}: failed").format(show_name=show_obj.name))
+                continue
+            fixed_total += fixed
+            unknown_total += still_unknown
+            lines.append(_("{show_name}: {fixed} fixed, {unknown} still unknown").format(show_name=show_obj.name, fixed=fixed, unknown=still_unknown))
+
+        logger.info(f"Unknown quality fix finished: {fixed_total} fixed, {unknown_total} still unknown")
+        ui.notifications.message(
+            _("Quality fix finished: {fixed} fixed, {unknown} still unknown").format(fixed=fixed_total, unknown=unknown_total),
+            "<ul><li>" + "</li><li>".join(lines) + "</li></ul>",
+        )
 
 
 @Route("/manage(/?.*)", name="manage:main")
@@ -858,9 +886,18 @@ class Manage(Home, WebRoot):
 
         shows.sort(key=lambda item: item["show"].sort_name)
 
+        unknown_quality = []
+        for show_id, rows in TVShow.unknown_quality_report().items():
+            show_obj = Show.find(settings.show_list, show_id)
+            if show_obj:
+                unknown_quality.append({"show": show_obj, "rows": rows})
+        unknown_quality.sort(key=lambda item: item["show"].sort_name)
+
         t = PageTemplate(rh=self, filename="manage_tbaEpisodes.mako")
         return t.render(
             shows=shows,
+            unknown_quality=unknown_quality,
+            quality_fix_running=_quality_fix_lock.locked(),
             title=_("TBA Episodes"),
             header=_("TBA Episodes"),
             topmenu="manage",
@@ -876,6 +913,26 @@ class Manage(Home, WebRoot):
             show_obj = Show.find(settings.show_list, try_int(show_id, None))
             if show_obj:
                 self._queue_tba_names(show_obj)
+
+        return self.redirect("/manage/tbaEpisodes/")
+
+    def qualityFix(self):
+        """
+        Re-detect quality for downloaded episodes stored as Unknown, in the background.
+        """
+        show_objects = []
+        for show_id in self.get_body_arguments("show") or self.get_query_arguments("show"):
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if show_obj:
+                show_objects.append(show_obj)
+
+        if _quality_fix_lock.locked():
+            ui.notifications.error(_("A quality fix is already running"), _("Wait for it to finish, then reload the page."))
+        elif show_objects:
+            threading.Thread(target=_fix_unknown_quality, args=(show_objects,), name="QUALITY-FIX", daemon=True).start()
+            ui.notifications.message(
+                _("Quality fix started"), _("Checking {count} show(s); reload the page when it finishes.").format(count=len(show_objects))
+            )
 
         return self.redirect("/manage/tbaEpisodes/")
 

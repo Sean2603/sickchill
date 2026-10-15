@@ -348,6 +348,75 @@ class TVShow(object):
                 entry[key].append(dict(row))
         return report
 
+    @staticmethod
+    def _unknown_quality_statuses() -> list:
+        return [Quality.compositeStatus(DOWNLOADED, Quality.UNKNOWN), Quality.compositeStatus(ARCHIVED, Quality.UNKNOWN)]
+
+    @staticmethod
+    def unknown_quality_report() -> dict:
+        """
+        Find downloaded episodes whose stored quality is Unknown (shows up as "Unknown" in renamed files).
+
+        :return: {indexerid: [rows]} with season, episode, location
+        """
+        statuses = TVShow._unknown_quality_statuses()
+        results = db.DBConnection().select(
+            f"SELECT showid, season, episode, location FROM tv_episodes WHERE location != '' AND status IN ({','.join('?' * len(statuses))}) "
+            "ORDER BY season, episode",
+            statuses,
+        )
+
+        report = {}
+        for row in results:
+            report.setdefault(int(row["showid"]), []).append(dict(row))
+        return report
+
+    def fix_unknown_quality(self) -> tuple:
+        """
+        Re-detect quality for this show's downloaded episodes stored as Unknown, from the file name
+        and then the file's video resolution. Status (downloaded/archived) is kept.
+
+        :return: (fixed, still_unknown)
+        """
+        statuses = self._unknown_quality_statuses()
+        rows = db.DBConnection().select(
+            f"SELECT season, episode, location FROM tv_episodes WHERE showid = ? AND location != '' AND status IN ({','.join('?' * len(statuses))})",
+            [self.indexerid] + statuses,
+        )
+
+        fixed = 0
+        still_unknown = 0
+        sql_l = []
+        for row in rows:
+            location = row["location"]
+            new_quality = Quality.nameQuality(location, self.is_anime) if os.path.isfile(location) else Quality.UNKNOWN
+            if new_quality == Quality.UNKNOWN:
+                still_unknown += 1
+                logger.debug(f"Quality still unknown for {self.name} {episode_num(row['season'], row['episode'])}: {location}")
+                continue
+
+            ep_obj = self.get_episode(row["season"], row["episode"])
+            if not ep_obj:
+                continue
+
+            with ep_obj.lock:
+                old_status, old_quality = Quality.splitCompositeStatus(ep_obj.status)
+                if old_quality != Quality.UNKNOWN:
+                    continue
+                ep_obj.status = Quality.compositeStatus(old_status, new_quality)
+                sql = ep_obj.get_sql()
+                if sql:
+                    sql_l.append(sql)
+                else:
+                    ep_obj.save_to_db()
+            fixed += 1
+            logger.info(f"Set quality for {self.name} {episode_num(row['season'], row['episode'])} to {Quality.qualityStrings[new_quality]}")
+
+        if sql_l:
+            db.DBConnection().mass_action(sql_l)
+
+        return fixed, still_unknown
+
     def update_tba_names(self) -> int:
         """
         Replace exact episode name "TBA" using the same V4 episode pull as a normal update.
