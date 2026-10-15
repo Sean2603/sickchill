@@ -120,6 +120,7 @@ window.SICKCHILL.manage = {
                 16: {sorter: false},
                 17: {sorter: false},
                 18: {sorter: false},
+                19: {sorter: false},
             },
             widgetOptions: {
                 columnSelector_saveColumns: true, // eslint-disable-line camelcase
@@ -143,6 +144,22 @@ window.SICKCHILL.manage = {
         }).on('shown.bs.popover', () => { // Bootstrap popover event triggered when the popover opens
             // call this function to copy the column selection code into the popover
             $.tablesorter.columnSelector.attachTo($('#massUpdateTable'), '#popover-target');
+        });
+
+        $('.previewMassRename').on('click', event => {
+            event.preventDefault();
+
+            const shows = $('.renameCheck:checked').map((_index, element) => element.value).get();
+            if (shows.length === 0) {
+                $.confirm({
+                    title: 'Preview Rename',
+                    text: 'Tick the Rename column for the shows you want to preview first.',
+                    confirm() {},
+                });
+                return;
+            }
+
+            $.redirect({url: scRoot + '/manage/massRenamePreview', values: {show: shows}, method: 'POST', traditional: true});
         });
 
         $('.submitMassUpdate').on('click', event => {

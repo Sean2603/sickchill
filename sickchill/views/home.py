@@ -1965,17 +1965,28 @@ class Home(WebRoot):
         except ShowDirectoryNotFoundException:
             return self._genericMessage(_("Error"), _("Can't rename episodes when the show dir is missing."))
 
-        if not eps:
-            return self.redirect("/home/displayShow?show=" + show)
+        self._rename_episodes(show_obj, eps.split("|"))
 
+        return self.redirect("/home/displayShow?show=" + show)
+
+    @staticmethod
+    def _rename_episodes(show_obj, episodes):
+        """
+        Rename episode files (with their multi-episode siblings) to match the naming pattern.
+
+        :param show_obj: Show the episodes belong to
+        :param episodes: Iterable of "SxE" strings
+        """
         main_db_con = db.DBConnection()
-        for cur_ep in eps.split("|"):
+        for cur_ep in episodes:
             ep_info = cur_ep.split("x")
 
             # this is probably the worst possible way to deal with double eps, but I've kinda painted myself into a corner here with this stupid database
-            ep_result = main_db_con.select("SELECT location FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?", [show, ep_info[0], ep_info[1]])
+            ep_result = main_db_con.select(
+                "SELECT location FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?", [show_obj.indexerid, ep_info[0], ep_info[1]]
+            )
             if not ep_result:
-                logger.warning(f"Unable to find an episode for {show}: {cur_ep} , skipping")
+                logger.warning(f"Unable to find an episode for {show_obj.indexerid}: {cur_ep} , skipping")
                 continue
             related_eps_result = main_db_con.select(
                 "SELECT season, episode FROM tv_episodes WHERE location = ? AND episode != ?", [ep_result[0]["location"], ep_info[1]]
@@ -1990,8 +2001,6 @@ class Home(WebRoot):
                     root_ep_obj.related_episodes.append(related_ep_obj)
 
             root_ep_obj.rename()
-
-        return self.redirect("/home/displayShow?show=" + show)
 
     def manual_search_show_releases(self):
         show = self.get_query_argument("show")

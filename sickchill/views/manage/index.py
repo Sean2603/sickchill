@@ -5,6 +5,7 @@ import posixpath
 
 from sickchill import logger, settings
 from sickchill.helper import episode_num, try_int
+from sickchill.helper.exceptions import CantUpdateShowException, ShowDirectoryNotFoundException
 from sickchill.oldbeard import db, subtitles as subtitle_module, ui
 from sickchill.oldbeard.common import SNATCHED, Overview, Quality
 from sickchill.show.Show import Show
@@ -725,6 +726,7 @@ class Manage(Home, WebRoot):
         update = self.get_body_arguments("update")
         refresh = self.get_body_arguments("refresh")
         rename = self.get_body_arguments("rename")
+        tba_names = self.get_body_arguments("tba")
         subtitle = self.get_body_arguments("subtitle")
         delete = self.get_body_arguments("delete")
         remove = self.get_body_arguments("remove")
@@ -735,9 +737,10 @@ class Manage(Home, WebRoot):
         refreshes = []
         updates = []
         renames = []
+        tba_updates = []
         subtitles = []
 
-        for curShowID in set(update + refresh + rename + subtitle + delete + remove + metadata):
+        for curShowID in set(update + refresh + rename + tba_names + subtitle + delete + remove + metadata):
             if curShowID == "":
                 continue
 
@@ -774,6 +777,14 @@ class Manage(Home, WebRoot):
                 else:
                     refreshes.append(show_object.name)
 
+            # a full update already refreshes episode titles
+            if curShowID in tba_names and curShowID not in update:
+                try:
+                    settings.showQueueScheduler.action.download_tba_names(show_object)
+                    tba_updates.append(show_object.name)
+                except CantUpdateShowException as error:
+                    errors.append(_("Unable to update TBA names for {show_name}: {error}").format(show_name=show_object.name, error=error))
+
             if curShowID in rename:
                 settings.showQueueScheduler.action.rename_show_episodes(show_object)
                 renames.append(show_object.name)
@@ -797,6 +808,11 @@ class Manage(Home, WebRoot):
             message_detail += "</li><li>".join(refreshes)
             message_detail += "</li></ul>"
 
+        if tba_updates:
+            message_detail += "<br><b>" + _("TBA Names") + "</b><br><ul><li>"
+            message_detail += "</li><li>".join(tba_updates)
+            message_detail += "</li></ul>"
+
         if renames:
             message_detail += "<br><b>" + _("Renames") + "</b><br><ul><li>"
             message_detail += "</li><li>".join(renames)
@@ -807,11 +823,104 @@ class Manage(Home, WebRoot):
             message_detail += "</li><li>".join(subtitles)
             message_detail += "</li></ul>"
 
-        if updates + refreshes + renames + subtitles:
+        if updates + refreshes + tba_updates + renames + subtitles:
             ui.notifications.message(_("The following actions were queued") + ":", message_detail)
 
         if edit:
             return self.massEdit()
+
+        return self.redirect("/manage/")
+
+    def massRenamePreview(self):
+        """
+        Preview pending file renames for the selected shows.
+        Only episodes whose current location differs from the naming pattern are listed.
+        """
+        show_ids = self.get_body_arguments("show") or self.get_query_arguments("show")
+
+        shows = []
+        skipped = []
+        for show_id in show_ids:
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if not show_obj:
+                continue
+
+            try:
+                show_location = show_obj.location
+            except ShowDirectoryNotFoundException:
+                skipped.append(show_obj.name)
+                continue
+
+            rows = []
+            for ep_obj in show_obj.get_all_episodes(has_location=True):
+                if not ep_obj.location or ep_obj.episode != min(ep_obj.sorted_episode_list):
+                    continue
+
+                location = ep_obj.location[len(show_location) + 1 :]
+                new_location = ep_obj.proper_path() + "." + location.split(".")[-1]
+                if location == new_location:
+                    continue
+
+                rows.append(
+                    {
+                        "id": f"{show_obj.indexerid}:{ep_obj.x_format}",
+                        "season": ep_obj.season,
+                        "sort": (ep_obj.season, ep_obj.episode),
+                        "episode": ep_obj.dash_format,
+                        "old": location,
+                        "new": new_location,
+                    }
+                )
+
+            if rows:
+                rows.sort(key=lambda row: row["sort"], reverse=True)
+                shows.append({"show": show_obj, "rows": rows})
+
+        shows.sort(key=lambda item: item["show"].sort_name)
+
+        t = PageTemplate(rh=self, filename="manage_massRenamePreview.mako")
+        return t.render(
+            shows=shows,
+            skipped=skipped,
+            selected=len(show_ids),
+            title=_("Mass Preview Rename"),
+            header=_("Mass Preview Rename"),
+            topmenu="manage",
+            controller="manage",
+            action="massRenamePreview",
+        )
+
+    def massRenameSubmit(self):
+        """
+        Rename the episodes selected on the mass rename preview page.
+        """
+        by_show = {}
+        for value in self.get_body_arguments("ep"):
+            show_id, _sep, episode = value.partition(":")
+            if episode:
+                by_show.setdefault(show_id, []).append(episode)
+
+        renamed = []
+        errors = []
+        for show_id, episodes in by_show.items():
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if not show_obj:
+                continue
+
+            try:
+                show_obj.location
+            except ShowDirectoryNotFoundException:
+                errors.append(_("Can't rename episodes for {show_name} when the show dir is missing.").format(show_name=show_obj.name))
+                continue
+
+            self._rename_episodes(show_obj, episodes)
+            renamed.append(f"{show_obj.name} ({len(episodes)})")
+
+        if errors:
+            ui.notifications.error(_("Errors encountered"), "<br >\n".join(errors))
+
+        if renamed:
+            ui.notifications.message(_("Renamed episodes") + ":", "<ul><li>" + "</li><li>".join(renamed) + "</li></ul>")
 
         return self.redirect("/manage/")
 
