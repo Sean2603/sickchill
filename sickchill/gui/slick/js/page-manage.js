@@ -193,6 +193,14 @@ window.SICKCHILL.manage = {
             }
         });
     },
+    tbaEpisodes() {
+        $('#pickShow').on('change', event => {
+            const showid = $(event.currentTarget).val();
+            if (showid) {
+                $('html,body').animate({scrollTop: $('#show-' + showid).offset().top - 25}, 'slow');
+            }
+        });
+    },
     failedDownloads() {
         $('#failedTable:has(tbody tr)').tablesorter({
             widgets: ['zebra'],

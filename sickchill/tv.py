@@ -328,12 +328,12 @@ class TVShow(object):
         horizon_ordinal = (sc_today() + datetime.timedelta(days=7)).toordinal()
         main_db_con = db.DBConnection()
         tba_rows = main_db_con.select(
-            "SELECT showid, season, episode, airdate, location FROM tv_episodes "
+            "SELECT showid, season, episode, name, airdate, location FROM tv_episodes "
             "WHERE name = ? AND airdate IS NOT NULL AND airdate > 1 AND airdate <= ? ORDER BY season, episode",
             ["TBA", horizon_ordinal],
         )
         rename_rows = main_db_con.select(
-            "SELECT showid, season, episode, name, location FROM tv_episodes "
+            "SELECT showid, season, episode, name, airdate, location FROM tv_episodes "
             "WHERE name != ? AND location != '' AND location GLOB '*TBA*' ORDER BY season, episode",
             ["TBA"],
         )
@@ -357,11 +357,11 @@ class TVShow(object):
         """
         Find downloaded episodes whose stored quality is Unknown (shows up as "Unknown" in renamed files).
 
-        :return: {indexerid: [rows]} with season, episode, location
+        :return: {indexerid: [rows]} with season, episode, name, airdate, location
         """
         statuses = TVShow._unknown_quality_statuses()
         results = db.DBConnection().select(
-            f"SELECT showid, season, episode, location FROM tv_episodes WHERE location != '' AND status IN ({','.join('?' * len(statuses))}) "
+            f"SELECT showid, season, episode, name, airdate, location FROM tv_episodes WHERE location != '' AND status IN ({','.join('?' * len(statuses))}) "
             "ORDER BY season, episode",
             statuses,
         )

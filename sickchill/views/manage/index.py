@@ -862,16 +862,49 @@ class Manage(Home, WebRoot):
 
     def tbaEpisodes(self):
         """
-        List shows with episodes still named TBA, or with files still named after a TBA title.
+        Backlog-overview style page of episode naming problems per show: titles still TBA,
+        files still named after a TBA title, and downloaded episodes with Unknown quality.
         """
         queue = settings.showQueueScheduler.action
-        report = TVShow.tba_episode_report()
+        tba_report = TVShow.tba_episode_report()
+        unknown_report = TVShow.unknown_quality_report()
 
+        per_show = {}
+
+        def add_rows(show_id, rows, issue):
+            episodes = per_show.setdefault(show_id, {})
+            for row in rows:
+                key = (int(row["season"]), int(row["episode"]))
+                entry = episodes.setdefault(
+                    key,
+                    {
+                        "season": key[0],
+                        "episode": key[1],
+                        "name": row["name"],
+                        "airdate": try_int(row["airdate"], 0),
+                        "file": os.path.basename(row["location"] or ""),
+                        "issues": [],
+                    },
+                )
+                entry["issues"].append(issue)
+
+        for show_id, entry in tba_report.items():
+            add_rows(show_id, entry["tba"], "tba")
+            add_rows(show_id, entry["rename"], "rename")
+        for show_id, rows in unknown_report.items():
+            add_rows(show_id, rows, "quality")
+
+        totals = {"tba": 0, "rename": 0, "quality": 0}
         shows = []
-        for show_id, entry in report.items():
+        for show_id, episodes in per_show.items():
             show_obj = Show.find(settings.show_list, show_id)
             if not show_obj:
                 continue
+
+            rows = sorted(episodes.values(), key=lambda row: (row["season"], row["episode"]), reverse=True)
+            counts = {issue: sum(issue in row["issues"] for row in rows) for issue in totals}
+            for issue, count in counts.items():
+                totals[issue] += count
 
             if queue.is_being_tba_names(show_obj) or queue.is_being_updated(show_obj):
                 state = _("Updating")
@@ -882,21 +915,14 @@ class Manage(Home, WebRoot):
             else:
                 state = ""
 
-            shows.append({"show": show_obj, "tba": entry["tba"], "rename": entry["rename"], "state": state})
+            shows.append({"show": show_obj, "rows": rows, "counts": counts, "state": state})
 
         shows.sort(key=lambda item: item["show"].sort_name)
-
-        unknown_quality = []
-        for show_id, rows in TVShow.unknown_quality_report().items():
-            show_obj = Show.find(settings.show_list, show_id)
-            if show_obj:
-                unknown_quality.append({"show": show_obj, "rows": rows})
-        unknown_quality.sort(key=lambda item: item["show"].sort_name)
 
         t = PageTemplate(rh=self, filename="manage_tbaEpisodes.mako")
         return t.render(
             shows=shows,
-            unknown_quality=unknown_quality,
+            totals=totals,
             quality_fix_running=_quality_fix_lock.locked(),
             title=_("TBA Episodes"),
             header=_("TBA Episodes"),
