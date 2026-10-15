@@ -1672,6 +1672,17 @@ class Home(WebRoot):
         if not show_obj:
             return self._genericMessage(_("Error"), _("Unable to find the specified show"))
 
+        self._queue_tba_names(show_obj)
+
+        return self.redirect(f"/home/displayShow?show={show_obj.indexerid}")
+
+    @staticmethod
+    def _queue_tba_names(show_obj) -> bool:
+        """
+        Queue a TBA episode name refresh for a show and notify the UI of the outcome.
+
+        :return: True if a TBA (or covering update) job is queued
+        """
         try:
             from sickchill.oldbeard.show_queue import ShowQueueActions
 
@@ -1694,8 +1705,10 @@ class Home(WebRoot):
                 _("Error"),
                 _("Failed to queue TBA episode name update for {show}").format(show=show_obj.name),
             )
+        else:
+            return True
 
-        return self.redirect(f"/home/displayShow?show={show_obj.indexerid}")
+        return False
 
     def subtitleShow(self):
         show = self.get_query_argument("show")

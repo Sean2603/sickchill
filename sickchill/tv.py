@@ -315,6 +315,39 @@ class TVShow(object):
         except Exception as error:
             return str(error), self
 
+    @staticmethod
+    def tba_episode_report() -> dict:
+        """
+        Find TBA work across all shows.
+
+        "tba": episodes still named exactly "TBA" in the airdate window update_tba_names uses.
+        "rename": episodes with a real name whose file on disk still has "TBA" in its path.
+
+        :return: {indexerid: {"tba": [rows], "rename": [rows]}} for shows with either
+        """
+        horizon_ordinal = (sc_today() + datetime.timedelta(days=7)).toordinal()
+        main_db_con = db.DBConnection()
+        tba_rows = main_db_con.select(
+            "SELECT showid, season, episode, airdate, location FROM tv_episodes "
+            "WHERE name = ? AND airdate IS NOT NULL AND airdate > 1 AND airdate <= ? ORDER BY season, episode",
+            ["TBA", horizon_ordinal],
+        )
+        rename_rows = main_db_con.select(
+            "SELECT showid, season, episode, name, location FROM tv_episodes "
+            "WHERE name != ? AND location != '' AND location GLOB '*TBA*' ORDER BY season, episode",
+            ["TBA"],
+        )
+
+        # GLOB matched the whole path; only the file name matters (not e.g. a show folder containing "TBA")
+        rename_rows = [row for row in rename_rows if "TBA" in os.path.basename(row["location"])]
+
+        report = {}
+        for key, rows in (("tba", tba_rows), ("rename", rename_rows)):
+            for row in rows:
+                entry = report.setdefault(int(row["showid"]), {"tba": [], "rename": []})
+                entry[key].append(dict(row))
+        return report
+
     def update_tba_names(self) -> int:
         """
         Replace exact episode name "TBA" using the same V4 episode pull as a normal update.

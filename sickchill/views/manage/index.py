@@ -9,6 +9,7 @@ from sickchill.helper.exceptions import CantUpdateShowException, ShowDirectoryNo
 from sickchill.oldbeard import db, subtitles as subtitle_module, ui
 from sickchill.oldbeard.common import SNATCHED, Overview, Quality
 from sickchill.show.Show import Show
+from sickchill.tv import TVShow
 from sickchill.views.common import PageTemplate
 from sickchill.views.home import Home, WebRoot
 from sickchill.views.routes import Route
@@ -831,12 +832,60 @@ class Manage(Home, WebRoot):
 
         return self.redirect("/manage/")
 
+    def tbaEpisodes(self):
+        """
+        List shows with episodes still named TBA, or with files still named after a TBA title.
+        """
+        queue = settings.showQueueScheduler.action
+        report = TVShow.tba_episode_report()
+
+        shows = []
+        for show_id, entry in report.items():
+            show_obj = Show.find(settings.show_list, show_id)
+            if not show_obj:
+                continue
+
+            if queue.is_being_tba_names(show_obj) or queue.is_being_updated(show_obj):
+                state = _("Updating")
+            elif queue.is_in_tba_names_queue(show_obj) or queue.is_in_update_queue(show_obj):
+                state = _("Queued")
+            elif queue.is_being_renamed(show_obj) or queue.is_in_rename_queue(show_obj):
+                state = _("Renaming")
+            else:
+                state = ""
+
+            shows.append({"show": show_obj, "tba": entry["tba"], "rename": entry["rename"], "state": state})
+
+        shows.sort(key=lambda item: item["show"].sort_name)
+
+        t = PageTemplate(rh=self, filename="manage_tbaEpisodes.mako")
+        return t.render(
+            shows=shows,
+            title=_("TBA Episodes"),
+            header=_("TBA Episodes"),
+            topmenu="manage",
+            controller="manage",
+            action="tbaEpisodes",
+        )
+
+    def tbaUpdate(self):
+        """
+        Queue TBA episode name updates for one or more shows, then return to the TBA Episodes page.
+        """
+        for show_id in self.get_body_arguments("show") or self.get_query_arguments("show"):
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if show_obj:
+                self._queue_tba_names(show_obj)
+
+        return self.redirect("/manage/tbaEpisodes/")
+
     def massRenamePreview(self):
         """
         Preview pending file renames for the selected shows.
         Only episodes whose current location differs from the naming pattern are listed.
         """
         show_ids = self.get_body_arguments("show") or self.get_query_arguments("show")
+        return_page = self._rename_return_page()
 
         shows = []
         skipped = []
@@ -883,6 +932,7 @@ class Manage(Home, WebRoot):
             shows=shows,
             skipped=skipped,
             selected=len(show_ids),
+            return_page=return_page,
             title=_("Mass Preview Rename"),
             header=_("Mass Preview Rename"),
             topmenu="manage",
@@ -922,7 +972,15 @@ class Manage(Home, WebRoot):
         if renamed:
             ui.notifications.message(_("Renamed episodes") + ":", "<ul><li>" + "</li><li>".join(renamed) + "</li></ul>")
 
-        return self.redirect("/manage/")
+        return self.redirect(self._rename_return_page())
+
+    def _rename_return_page(self) -> str:
+        """
+        Page to go back to after a mass rename; only known manage pages are allowed.
+        """
+        if (self.get_body_argument("next", None) or self.get_query_argument("next", None)) == "tba":
+            return "/manage/tbaEpisodes/"
+        return "/manage/"
 
     def failedDownloads(self):
         """

@@ -7,7 +7,10 @@
 </%block>
 
 <%block name="content">
-    <form name="massRenameForm" method="post" action="massRenameSubmit">
+    <form name="massRenameForm" method="post" action="${scRoot}/manage/massRenameSubmit">
+        % if return_page == '/manage/tbaEpisodes/':
+            <input type="hidden" name="next" value="tba" />
+        % endif
         <div class="row">
             <div class="col-md-12">
                 % if not header is UNDEFINED:
@@ -43,7 +46,7 @@
             <div class="row">
                 <div class="col-md-12">
                     <input type="submit" value="${_('Rename Selected')}" class="btn btn-success massRenameSubmit" />
-                    <a href="${scRoot}/manage/" class="btn btn-danger">${_('Cancel Rename')}</a>
+                    <a href="${scRoot}${return_page}" class="btn btn-danger">${_('Cancel Rename')}</a>
                 </div>
             </div>
 
@@ -88,13 +91,13 @@
             <div class="row">
                 <div class="col-md-12">
                     <input type="submit" value="${_('Rename Selected')}" class="btn btn-success massRenameSubmit" />
-                    <a href="${scRoot}/manage/" class="btn btn-danger">${_('Cancel Rename')}</a>
+                    <a href="${scRoot}${return_page}" class="btn btn-danger">${_('Cancel Rename')}</a>
                 </div>
             </div>
         % else:
             <div class="row">
                 <div class="col-md-12">
-                    <a href="${scRoot}/manage/" class="btn">${_('Back to Mass Update')}</a>
+                    <a href="${scRoot}${return_page}" class="btn">${_('Back')}</a>
                 </div>
             </div>
         % endif
