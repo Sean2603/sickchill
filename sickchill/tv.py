@@ -376,7 +376,7 @@ class TVShow(object):
         Re-detect quality for this show's downloaded episodes stored as Unknown, from the file name
         and then the file's video resolution. Status (downloaded/archived) is kept.
 
-        :return: (fixed, still_unknown)
+        :return: (fixed episodes as "SxE" strings, number still unknown)
         """
         statuses = self._unknown_quality_statuses()
         rows = db.DBConnection().select(
@@ -384,7 +384,7 @@ class TVShow(object):
             [self.indexerid] + statuses,
         )
 
-        fixed = 0
+        fixed = []
         still_unknown = 0
         sql_l = []
         for row in rows:
@@ -409,7 +409,7 @@ class TVShow(object):
                     sql_l.append(sql)
                 else:
                     ep_obj.save_to_db()
-            fixed += 1
+            fixed.append(f"{row['season']}x{row['episode']}")
             logger.info(f"Set quality for {self.name} {episode_num(row['season'], row['episode'])} to {Quality.qualityStrings[new_quality]}")
 
         if sql_l:

@@ -48,7 +48,7 @@
             <p>
                 <span class="listing-key wanted">${_('TBA title')}</span> ${_('still titled TBA (airing up to 7 days ahead): Update TBA names')}
                 &nbsp; <span class="listing-key snatched">${_('Named TBA')}</span> ${_('file still named after a TBA title: Preview rename')}
-                &nbsp; <span class="listing-key qual">${_('Unknown quality')}</span> ${_('renames as "Unknown": Fix quality, then Preview rename')}
+                &nbsp; <span class="listing-key qual">${_('Unknown quality')}</span> ${_('renames as "Unknown": Fix quality (then Preview rename), or Fix & rename in one go')}
             </p>
             % if quality_fix_running:
                 <p><strong>${_('A quality fix is running. Reload this page when it finishes.')}</strong></p>
@@ -75,6 +75,13 @@
                     <form method="post" action="${scRoot}/manage/qualityFix" style="display: inline-block;">
                         ${hidden_shows(quality_shows)}
                         <input type="submit" class="btn btn-inline" value="${_('Fix quality for all')} (${len(quality_shows)})" ${('', 'disabled')[quality_fix_running]} />
+                    </form>
+                    <form method="post" action="${scRoot}/manage/qualityFix" style="display: inline-block;">
+                        <input type="hidden" name="rename" value="1" />
+                        ${hidden_shows(quality_shows)}
+                        <input type="submit" class="btn btn-inline" value="${_('Fix quality & rename all')} (${len(quality_shows)})"
+                               title="${_('Saves the detected quality, then renames those files so the name includes the quality and the codec read from the file')}"
+                               ${('', 'disabled')[quality_fix_running]} />
                     </form>
                 % endif
                 % if rename_shows:
@@ -117,6 +124,8 @@
                         % endif
                         % if item['counts']['quality']:
                             <a class="btn btn-inline" href="${scRoot}/manage/qualityFix?show=${show.indexerid}" ${('', 'disabled')[quality_fix_running]}>${_('Fix quality')}</a>
+                            <a class="btn btn-inline" href="${scRoot}/manage/qualityFix?show=${show.indexerid}&amp;rename=1" ${('', 'disabled')[quality_fix_running]}
+                               title="${_('Saves the detected quality, then renames those files so the name includes the quality and the codec read from the file')}">${_('Fix & rename')}</a>
                         % endif
                         % if item['counts']['rename'] or item['counts']['quality']:
                             <a class="btn btn-inline" href="${scRoot}/manage/massRenamePreview?show=${show.indexerid}&amp;next=tba">${_('Preview rename')}</a>

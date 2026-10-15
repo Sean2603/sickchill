@@ -20,7 +20,11 @@ from sickchill.views.routes import Route
 _quality_fix_lock = threading.Lock()
 
 
-def _fix_unknown_quality(show_objects):
+def _fix_unknown_quality(show_objects, rename=False):
+    """
+    Re-detect Unknown qualities; with rename, also rename the fixed episodes' files so the
+    new name carries the detected quality and the codec read from the file.
+    """
     with _quality_fix_lock:
         fixed_total = 0
         unknown_total = 0
@@ -28,17 +32,22 @@ def _fix_unknown_quality(show_objects):
         for show_obj in show_objects:
             try:
                 fixed, still_unknown = show_obj.fix_unknown_quality()
+                if rename and fixed:
+                    Home._rename_episodes(show_obj, fixed)
             except Exception as error:
                 logger.exception(f"Fixing unknown quality failed for {show_obj.name}: {error}")
                 lines.append(_("{show_name}: failed").format(show_name=show_obj.name))
                 continue
-            fixed_total += fixed
+            fixed_total += len(fixed)
             unknown_total += still_unknown
-            lines.append(_("{show_name}: {fixed} fixed, {unknown} still unknown").format(show_name=show_obj.name, fixed=fixed, unknown=still_unknown))
+            lines.append(
+                _("{show_name}: {fixed} fixed, {unknown} still unknown").format(show_name=show_obj.name, fixed=len(fixed), unknown=still_unknown)
+            )
 
-        logger.info(f"Unknown quality fix finished: {fixed_total} fixed, {unknown_total} still unknown")
+        action = _("Quality fix and rename") if rename else _("Quality fix")
+        logger.info(f"{action} finished: {fixed_total} fixed, {unknown_total} still unknown")
         ui.notifications.message(
-            _("Quality fix finished: {fixed} fixed, {unknown} still unknown").format(fixed=fixed_total, unknown=unknown_total),
+            _("{action} finished: {fixed} fixed, {unknown} still unknown").format(action=action, fixed=fixed_total, unknown=unknown_total),
             "<ul><li>" + "</li><li>".join(lines) + "</li></ul>",
         )
 
@@ -955,7 +964,8 @@ class Manage(Home, WebRoot):
         if _quality_fix_lock.locked():
             ui.notifications.error(_("A quality fix is already running"), _("Wait for it to finish, then reload the page."))
         elif show_objects:
-            threading.Thread(target=_fix_unknown_quality, args=(show_objects,), name="QUALITY-FIX", daemon=True).start()
+            rename = (self.get_body_argument("rename", None) or self.get_query_argument("rename", None)) == "1"
+            threading.Thread(target=_fix_unknown_quality, args=(show_objects, rename), name="QUALITY-FIX", daemon=True).start()
             ui.notifications.message(
                 _("Quality fix started"), _("Checking {count} show(s); reload the page when it finishes.").format(count=len(show_objects))
             )
