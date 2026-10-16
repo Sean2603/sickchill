@@ -2,15 +2,54 @@ import json
 import ntpath
 import os
 import posixpath
+import threading
 
 from sickchill import logger, settings
 from sickchill.helper import episode_num, try_int
+from sickchill.helper.exceptions import CantUpdateShowException, ShowDirectoryNotFoundException
 from sickchill.oldbeard import db, subtitles as subtitle_module, ui
 from sickchill.oldbeard.common import SNATCHED, Overview, Quality
 from sickchill.show.Show import Show
+from sickchill.tv import TVShow
 from sickchill.views.common import PageTemplate
 from sickchill.views.home import Home, WebRoot
 from sickchill.views.routes import Route
+
+
+# Background "fix unknown quality" job (reads media files, so kept off the web thread)
+_quality_fix_lock = threading.Lock()
+
+
+def _fix_unknown_quality(show_objects, rename=False):
+    """
+    Re-detect Unknown qualities; with rename, also rename the fixed episodes' files so the
+    new name carries the detected quality and the codec read from the file.
+    """
+    with _quality_fix_lock:
+        fixed_total = 0
+        unknown_total = 0
+        lines = []
+        for show_obj in show_objects:
+            try:
+                fixed, still_unknown = show_obj.fix_unknown_quality()
+                if rename and fixed:
+                    Home._rename_episodes(show_obj, fixed)
+            except Exception as error:
+                logger.exception(f"Fixing unknown quality failed for {show_obj.name}: {error}")
+                lines.append(_("{show_name}: failed").format(show_name=show_obj.name))
+                continue
+            fixed_total += len(fixed)
+            unknown_total += still_unknown
+            lines.append(
+                _("{show_name}: {fixed} fixed, {unknown} still unknown").format(show_name=show_obj.name, fixed=len(fixed), unknown=still_unknown)
+            )
+
+        action = _("Quality fix and rename") if rename else _("Quality fix")
+        logger.info(f"{action} finished: {fixed_total} fixed, {unknown_total} still unknown")
+        ui.notifications.message(
+            _("{action} finished: {fixed} fixed, {unknown} still unknown").format(action=action, fixed=fixed_total, unknown=unknown_total),
+            "<ul><li>" + "</li><li>".join(lines) + "</li></ul>",
+        )
 
 
 @Route("/manage(/?.*)", name="manage:main")
@@ -725,6 +764,7 @@ class Manage(Home, WebRoot):
         update = self.get_body_arguments("update")
         refresh = self.get_body_arguments("refresh")
         rename = self.get_body_arguments("rename")
+        tba_names = self.get_body_arguments("tba")
         subtitle = self.get_body_arguments("subtitle")
         delete = self.get_body_arguments("delete")
         remove = self.get_body_arguments("remove")
@@ -735,9 +775,10 @@ class Manage(Home, WebRoot):
         refreshes = []
         updates = []
         renames = []
+        tba_updates = []
         subtitles = []
 
-        for curShowID in set(update + refresh + rename + subtitle + delete + remove + metadata):
+        for curShowID in set(update + refresh + rename + tba_names + subtitle + delete + remove + metadata):
             if curShowID == "":
                 continue
 
@@ -774,6 +815,14 @@ class Manage(Home, WebRoot):
                 else:
                     refreshes.append(show_object.name)
 
+            # a full update already refreshes episode titles
+            if curShowID in tba_names and curShowID not in update:
+                try:
+                    settings.showQueueScheduler.action.download_tba_names(show_object)
+                    tba_updates.append(show_object.name)
+                except CantUpdateShowException as error:
+                    errors.append(_("Unable to update TBA names for {show_name}: {error}").format(show_name=show_object.name, error=error))
+
             if curShowID in rename:
                 settings.showQueueScheduler.action.rename_show_episodes(show_object)
                 renames.append(show_object.name)
@@ -797,6 +846,11 @@ class Manage(Home, WebRoot):
             message_detail += "</li><li>".join(refreshes)
             message_detail += "</li></ul>"
 
+        if tba_updates:
+            message_detail += "<br><b>" + _("TBA Names") + "</b><br><ul><li>"
+            message_detail += "</li><li>".join(tba_updates)
+            message_detail += "</li></ul>"
+
         if renames:
             message_detail += "<br><b>" + _("Renames") + "</b><br><ul><li>"
             message_detail += "</li><li>".join(renames)
@@ -807,13 +861,219 @@ class Manage(Home, WebRoot):
             message_detail += "</li><li>".join(subtitles)
             message_detail += "</li></ul>"
 
-        if updates + refreshes + renames + subtitles:
+        if updates + refreshes + tba_updates + renames + subtitles:
             ui.notifications.message(_("The following actions were queued") + ":", message_detail)
 
         if edit:
             return self.massEdit()
 
         return self.redirect("/manage/")
+
+    def tbaEpisodes(self):
+        """
+        Backlog-overview style page of episode naming problems per show: titles still TBA,
+        files still named after a TBA title, and downloaded episodes with Unknown quality.
+        """
+        queue = settings.showQueueScheduler.action
+        tba_report = TVShow.tba_episode_report()
+        unknown_report = TVShow.unknown_quality_report()
+
+        per_show = {}
+
+        def add_rows(show_id, rows, issue):
+            episodes = per_show.setdefault(show_id, {})
+            for row in rows:
+                key = (int(row["season"]), int(row["episode"]))
+                entry = episodes.setdefault(
+                    key,
+                    {
+                        "season": key[0],
+                        "episode": key[1],
+                        "name": row["name"],
+                        "airdate": try_int(row["airdate"], 0),
+                        "file": os.path.basename(row["location"] or ""),
+                        "issues": [],
+                    },
+                )
+                entry["issues"].append(issue)
+
+        for show_id, entry in tba_report.items():
+            add_rows(show_id, entry["tba"], "tba")
+            add_rows(show_id, entry["rename"], "rename")
+        for show_id, rows in unknown_report.items():
+            add_rows(show_id, rows, "quality")
+
+        totals = {"tba": 0, "rename": 0, "quality": 0}
+        shows = []
+        for show_id, episodes in per_show.items():
+            show_obj = Show.find(settings.show_list, show_id)
+            if not show_obj:
+                continue
+
+            rows = sorted(episodes.values(), key=lambda row: (row["season"], row["episode"]), reverse=True)
+            counts = {issue: sum(issue in row["issues"] for row in rows) for issue in totals}
+            for issue, count in counts.items():
+                totals[issue] += count
+
+            if queue.is_being_tba_names(show_obj) or queue.is_being_updated(show_obj):
+                state = _("Updating")
+            elif queue.is_in_tba_names_queue(show_obj) or queue.is_in_update_queue(show_obj):
+                state = _("Queued")
+            elif queue.is_being_renamed(show_obj) or queue.is_in_rename_queue(show_obj):
+                state = _("Renaming")
+            else:
+                state = ""
+
+            shows.append({"show": show_obj, "rows": rows, "counts": counts, "state": state})
+
+        shows.sort(key=lambda item: item["show"].sort_name)
+
+        t = PageTemplate(rh=self, filename="manage_tbaEpisodes.mako")
+        return t.render(
+            shows=shows,
+            totals=totals,
+            quality_fix_running=_quality_fix_lock.locked(),
+            title=_("TBA Episodes"),
+            header=_("TBA Episodes"),
+            topmenu="manage",
+            controller="manage",
+            action="tbaEpisodes",
+        )
+
+    def tbaUpdate(self):
+        """
+        Queue TBA episode name updates for one or more shows, then return to the TBA Episodes page.
+        """
+        for show_id in self.get_body_arguments("show") or self.get_query_arguments("show"):
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if show_obj:
+                self._queue_tba_names(show_obj)
+
+        return self.redirect("/manage/tbaEpisodes/")
+
+    def qualityFix(self):
+        """
+        Re-detect quality for downloaded episodes stored as Unknown, in the background.
+        """
+        show_objects = []
+        for show_id in self.get_body_arguments("show") or self.get_query_arguments("show"):
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if show_obj:
+                show_objects.append(show_obj)
+
+        if _quality_fix_lock.locked():
+            ui.notifications.error(_("A quality fix is already running"), _("Wait for it to finish, then reload the page."))
+        elif show_objects:
+            rename = (self.get_body_argument("rename", None) or self.get_query_argument("rename", None)) == "1"
+            threading.Thread(target=_fix_unknown_quality, args=(show_objects, rename), name="QUALITY-FIX", daemon=True).start()
+            ui.notifications.message(
+                _("Quality fix started"), _("Checking {count} show(s); reload the page when it finishes.").format(count=len(show_objects))
+            )
+
+        return self.redirect("/manage/tbaEpisodes/")
+
+    def massRenamePreview(self):
+        """
+        Preview pending file renames for the selected shows.
+        Only episodes whose current location differs from the naming pattern are listed.
+        """
+        show_ids = self.get_body_arguments("show") or self.get_query_arguments("show")
+        return_page = self._rename_return_page()
+
+        shows = []
+        skipped = []
+        for show_id in show_ids:
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if not show_obj:
+                continue
+
+            try:
+                show_location = show_obj.location
+            except ShowDirectoryNotFoundException:
+                skipped.append(show_obj.name)
+                continue
+
+            rows = []
+            for ep_obj in show_obj.get_all_episodes(has_location=True):
+                if not ep_obj.location or ep_obj.episode != min(ep_obj.sorted_episode_list):
+                    continue
+
+                location = ep_obj.location[len(show_location) + 1 :]
+                new_location = ep_obj.proper_path() + "." + location.split(".")[-1]
+                if location == new_location:
+                    continue
+
+                rows.append(
+                    {
+                        "id": f"{show_obj.indexerid}:{ep_obj.x_format}",
+                        "season": ep_obj.season,
+                        "sort": (ep_obj.season, ep_obj.episode),
+                        "episode": ep_obj.dash_format,
+                        "old": location,
+                        "new": new_location,
+                    }
+                )
+
+            if rows:
+                rows.sort(key=lambda row: row["sort"], reverse=True)
+                shows.append({"show": show_obj, "rows": rows})
+
+        shows.sort(key=lambda item: item["show"].sort_name)
+
+        t = PageTemplate(rh=self, filename="manage_massRenamePreview.mako")
+        return t.render(
+            shows=shows,
+            skipped=skipped,
+            selected=len(show_ids),
+            return_page=return_page,
+            title=_("Mass Preview Rename"),
+            header=_("Mass Preview Rename"),
+            topmenu="manage",
+            controller="manage",
+            action="massRenamePreview",
+        )
+
+    def massRenameSubmit(self):
+        """
+        Rename the episodes selected on the mass rename preview page.
+        """
+        by_show = {}
+        for value in self.get_body_arguments("ep"):
+            show_id, _sep, episode = value.partition(":")
+            if episode:
+                by_show.setdefault(show_id, []).append(episode)
+
+        renamed = []
+        errors = []
+        for show_id, episodes in by_show.items():
+            show_obj = Show.find(settings.show_list, try_int(show_id, None))
+            if not show_obj:
+                continue
+
+            try:
+                show_obj.location
+            except ShowDirectoryNotFoundException:
+                errors.append(_("Can't rename episodes for {show_name} when the show dir is missing.").format(show_name=show_obj.name))
+                continue
+
+            self._rename_episodes(show_obj, episodes)
+            renamed.append(f"{show_obj.name} ({len(episodes)})")
+
+        if errors:
+            ui.notifications.error(_("Errors encountered"), "<br >\n".join(errors))
+
+        if renamed:
+            ui.notifications.message(_("Renamed episodes") + ":", "<ul><li>" + "</li><li>".join(renamed) + "</li></ul>")
+
+        return self.redirect(self._rename_return_page())
+
+    def _rename_return_page(self) -> str:
+        """
+        Page to go back to after a mass rename; only known manage pages are allowed.
+        """
+        if (self.get_body_argument("next", None) or self.get_query_argument("next", None)) == "tba":
+            return "/manage/tbaEpisodes/"
+        return "/manage/"
 
     def failedDownloads(self):
         """

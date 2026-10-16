@@ -1,0 +1,19 @@
+# Fast rebuild for code-only changes: copies this checkout's sickchill/ package over a fixed
+# full "base" image instead of rebuilding dependencies (no emulated pip/poetry steps).
+# Always overlay the base, never the previous overlay, so layers don't pile up.
+# Rebuild the base (build-pi.ps1 -Base) whenever pyproject.toml dependencies change.
+#
+# docker buildx build --builder desktop-linux --platform linux/arm64 -f Dockerfile.overlay \
+#   --build-arg GIT_SHA=$(git rev-parse HEAD) -t sickchill:feature_TBA --load .
+#
+# BASE is a local image, so use the desktop-linux builder (the "sc" container builder cannot
+# see local images).
+
+ARG BASE=sickchill:base-arm64
+FROM ${BASE}
+
+ARG GIT_SHA=unknown
+ARG GIT_BRANCH=feature_TBA
+
+COPY sickchill/ /.venv/lib/python3.13/site-packages/sickchill/
+RUN printf '%s %s\n' "$GIT_BRANCH" "$GIT_SHA" > /.venv/lib/python3.13/site-packages/sickchill/_revision.txt

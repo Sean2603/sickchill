@@ -197,6 +197,7 @@
                                     <li><a href="${static_url('manage/backlogOverview/', include_version=False)}"><i class="fa fa-fw fa-binoculars"></i>&nbsp;${_('Backlog Overview')}</a></li>
                                     <li><a href="${static_url('manage/manageSearches/', include_version=False)}"><i class="fa fa-fw fa-search"></i>&nbsp;${_('Manage Searches')}</a></li>
                                     <li><a href="${static_url('manage/episodeStatuses/', include_version=False)}"><i class="fa fa-fw fa-gavel"></i>&nbsp;${_('Episode Status Management')}</a></li>
+                                    <li><a href="${static_url('manage/tbaEpisodes/', include_version=False)}"><i class="fa fa-fw fa-question-circle"></i>&nbsp;${_('TBA Episodes')}</a></li>
                                     % if settings.USE_PLEX_SERVER and settings.PLEX_SERVER_HOST != "":
                                         <li><a href="${static_url('home/updatePLEX/', include_version=False)}"><i class="menu-icon-plex"></i>&nbsp;${_('Update PLEX')}</a></li>
                                     % endif

@@ -315,6 +315,164 @@ class TVShow(object):
         except Exception as error:
             return str(error), self
 
+    @staticmethod
+    def tba_episode_report() -> dict:
+        """
+        Find TBA work across all shows.
+
+        "tba": episodes still named exactly "TBA" in the airdate window update_tba_names uses.
+        "rename": episodes with a real name whose file on disk still has "TBA" in its path.
+
+        :return: {indexerid: {"tba": [rows], "rename": [rows]}} for shows with either
+        """
+        horizon_ordinal = (sc_today() + datetime.timedelta(days=7)).toordinal()
+        main_db_con = db.DBConnection()
+        tba_rows = main_db_con.select(
+            "SELECT showid, season, episode, name, airdate, location FROM tv_episodes "
+            "WHERE name = ? AND airdate IS NOT NULL AND airdate > 1 AND airdate <= ? ORDER BY season, episode",
+            ["TBA", horizon_ordinal],
+        )
+        rename_rows = main_db_con.select(
+            "SELECT showid, season, episode, name, airdate, location FROM tv_episodes "
+            "WHERE name != ? AND location != '' AND location GLOB '*TBA*' ORDER BY season, episode",
+            ["TBA"],
+        )
+
+        # GLOB matched the whole path; only the file name matters (not e.g. a show folder containing "TBA")
+        rename_rows = [row for row in rename_rows if "TBA" in os.path.basename(row["location"])]
+
+        report = {}
+        for key, rows in (("tba", tba_rows), ("rename", rename_rows)):
+            for row in rows:
+                entry = report.setdefault(int(row["showid"]), {"tba": [], "rename": []})
+                entry[key].append(dict(row))
+        return report
+
+    def rename_episode_files(self, episodes) -> None:
+        """
+        Rename episode files (with their multi-episode siblings) to match the naming pattern.
+
+        :param episodes: Iterable of "SxE" strings
+        """
+        main_db_con = db.DBConnection()
+        for cur_ep in episodes:
+            ep_info = cur_ep.split("x")
+
+            # this is probably the worst possible way to deal with double eps, but I've kinda painted myself into a corner here with this stupid database
+            ep_result = main_db_con.select(
+                "SELECT location FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?", [self.indexerid, ep_info[0], ep_info[1]]
+            )
+            if not ep_result:
+                logger.warning(f"Unable to find an episode for {self.indexerid}: {cur_ep} , skipping")
+                continue
+            related_eps_result = main_db_con.select(
+                "SELECT season, episode FROM tv_episodes WHERE location = ? AND episode != ?", [ep_result[0]["location"], ep_info[1]]
+            )
+
+            root_ep_obj = self.get_episode(ep_info[0], ep_info[1])
+            root_ep_obj.related_episodes = []
+
+            for cur_related_ep in related_eps_result:
+                related_ep_obj = self.get_episode(cur_related_ep["season"], cur_related_ep["episode"])
+                if related_ep_obj not in root_ep_obj.related_episodes:
+                    root_ep_obj.related_episodes.append(related_ep_obj)
+
+            root_ep_obj.rename()
+
+    def rename_tba_files(self) -> int:
+        """
+        Rename files still named after a TBA title once the episode has its real name.
+        Skipped when episode renaming is disabled in post-processing settings.
+
+        :return: Number of episodes renamed
+        """
+        if not settings.RENAME_EPISODES:
+            return 0
+
+        try:
+            self.location
+        except ShowDirectoryNotFoundException:
+            return 0
+
+        rows = db.DBConnection().select(
+            "SELECT season, episode, location FROM tv_episodes WHERE showid = ? AND name != ? AND location != '' AND location GLOB '*TBA*'",
+            [self.indexerid, "TBA"],
+        )
+        episodes = [f"{row['season']}x{row['episode']}" for row in rows if "TBA" in os.path.basename(row["location"])]
+        if episodes:
+            logger.info(f"Renaming {len(episodes)} TBA-named file(s) for {self.name}")
+            self.rename_episode_files(episodes)
+        return len(episodes)
+
+    @staticmethod
+    def _unknown_quality_statuses() -> list:
+        return [Quality.compositeStatus(DOWNLOADED, Quality.UNKNOWN), Quality.compositeStatus(ARCHIVED, Quality.UNKNOWN)]
+
+    @staticmethod
+    def unknown_quality_report() -> dict:
+        """
+        Find downloaded episodes whose stored quality is Unknown (shows up as "Unknown" in renamed files).
+
+        :return: {indexerid: [rows]} with season, episode, name, airdate, location
+        """
+        statuses = TVShow._unknown_quality_statuses()
+        results = db.DBConnection().select(
+            f"SELECT showid, season, episode, name, airdate, location FROM tv_episodes WHERE location != '' AND status IN ({','.join('?' * len(statuses))}) "
+            "ORDER BY season, episode",
+            statuses,
+        )
+
+        report = {}
+        for row in results:
+            report.setdefault(int(row["showid"]), []).append(dict(row))
+        return report
+
+    def fix_unknown_quality(self) -> tuple:
+        """
+        Re-detect quality for this show's downloaded episodes stored as Unknown, from the file name
+        and then the file's video resolution. Status (downloaded/archived) is kept.
+
+        :return: (fixed episodes as "SxE" strings, number still unknown)
+        """
+        statuses = self._unknown_quality_statuses()
+        rows = db.DBConnection().select(
+            f"SELECT season, episode, location FROM tv_episodes WHERE showid = ? AND location != '' AND status IN ({','.join('?' * len(statuses))})",
+            [self.indexerid] + statuses,
+        )
+
+        fixed = []
+        still_unknown = 0
+        sql_l = []
+        for row in rows:
+            location = row["location"]
+            new_quality = Quality.nameQuality(location, self.is_anime) if os.path.isfile(location) else Quality.UNKNOWN
+            if new_quality == Quality.UNKNOWN:
+                still_unknown += 1
+                logger.debug(f"Quality still unknown for {self.name} {episode_num(row['season'], row['episode'])}: {location}")
+                continue
+
+            ep_obj = self.get_episode(row["season"], row["episode"])
+            if not ep_obj:
+                continue
+
+            with ep_obj.lock:
+                old_status, old_quality = Quality.splitCompositeStatus(ep_obj.status)
+                if old_quality != Quality.UNKNOWN:
+                    continue
+                ep_obj.status = Quality.compositeStatus(old_status, new_quality)
+                sql = ep_obj.get_sql()
+                if sql:
+                    sql_l.append(sql)
+                else:
+                    ep_obj.save_to_db()
+            fixed.append(f"{row['season']}x{row['episode']}")
+            logger.info(f"Set quality for {self.name} {episode_num(row['season'], row['episode'])} to {Quality.qualityStrings[new_quality]}")
+
+        if sql_l:
+            db.DBConnection().mass_action(sql_l)
+
+        return fixed, still_unknown
+
     def update_tba_names(self) -> int:
         """
         Replace exact episode name "TBA" using the same V4 episode pull as a normal update.
@@ -418,6 +576,7 @@ class TVShow(object):
             main_db_con.mass_action(sql_l)
 
         logger.info(f"Updated {updated_count} TBA episode(s) for {self.name} (still TBA on TVDB: {skipped_still_tba})")
+
         return updated_count
 
     def update(self, force: bool = False, front: bool = False) -> tuple[Union[str, None], "TVShow"]:

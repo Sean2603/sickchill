@@ -12,6 +12,8 @@
         <div class="row">
             <div class="col-lg-8 col-md-8 col-sm-8 col-xs-12 pull-right">
                 <input class="btn submitMassUpdate pull-right" type="button" value="${_('Submit')}" />
+                <input class="btn previewMassRename pull-right" type="button" value="${_('Preview Rename')}"
+                       title="${_('Preview pending file renames for the shows ticked in the Rename column')}" />
                 <span class="show-option">
                     <button id="popover" type="button" class="btn pull-right">${_('Select Columns')} <b class="caret"></b></button>
                 </span>
@@ -61,6 +63,10 @@
                                 <th class="col-checkbox text-nowrap">${_('Rename')}<br>
                                     <label for="renameCheck" class="sr-only">${_('Rename All')}</label>
                                     <input type="checkbox" class="bulkCheck" id="renameCheck" />
+                                </th>
+                                <th class="col-checkbox text-nowrap">${_('TBA Names')}<br>
+                                    <label for="tbaCheck" class="sr-only">${_('TBA Names All')}</label>
+                                    <input type="checkbox" class="bulkCheck" id="tbaCheck" />
                                 </th>
                                 % if settings.USE_SUBTITLES:
                                     <th class="col-checkbox text-nowrap">${_('Search Subtitle')}<br>
@@ -127,6 +133,18 @@
                                         <input type="checkbox" class="renameCheck" name="rename" value="${curShow.indexerid}" id="rename-${curShow.indexerid}" ${("", "disabled")[disabled]}/>
                                     </td>
 
+                                    <td class="text-center">
+                                        <%
+                                            disabled = any([
+                                                settings.showQueueScheduler.action.is_being_updated(curShow),
+                                                settings.showQueueScheduler.action.is_being_tba_names(curShow),
+                                                settings.showQueueScheduler.action.is_in_tba_names_queue(curShow)
+                                            ])
+                                        %>
+                                        <label for="tba-${curShow.indexerid}" class="sr-only">${_('TBA Names')} ${curShow.name}</label>
+                                        <input type="checkbox" class="tbaCheck" name="tba" value="${curShow.indexerid}" id="tba-${curShow.indexerid}" ${("", "disabled")[disabled]}/>
+                                    </td>
+
                                     % if settings.USE_SUBTITLES:
                                         <td class="text-center">
                                             <% disabled = not curShow.subtitles or settings.showQueueScheduler.action.is_being_subtitled(curShow) or settings.showQueueScheduler.action.is_in_subtitle_queue(curShow) %>
@@ -163,7 +181,7 @@
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td rowspan="1" colspan="${(18, 19)[bool(settings.USE_SUBTITLES)]}" class="align-right alt"><input class="btn pull-right submitMassUpdate" type="button" value="${_('Submit')}" /></td>
+                                <td rowspan="1" colspan="${(19, 20)[bool(settings.USE_SUBTITLES)]}" class="align-right alt"><input class="btn pull-right submitMassUpdate" type="button" value="${_('Submit')}" /><input class="btn pull-right previewMassRename" type="button" value="${_('Preview Rename')}" /></td>
                             </tr>
                         </tfoot>
                     </table>

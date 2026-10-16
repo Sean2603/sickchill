@@ -1672,6 +1672,17 @@ class Home(WebRoot):
         if not show_obj:
             return self._genericMessage(_("Error"), _("Unable to find the specified show"))
 
+        self._queue_tba_names(show_obj)
+
+        return self.redirect(f"/home/displayShow?show={show_obj.indexerid}")
+
+    @staticmethod
+    def _queue_tba_names(show_obj) -> bool:
+        """
+        Queue a TBA episode name refresh for a show and notify the UI of the outcome.
+
+        :return: True if a TBA (or covering update) job is queued
+        """
         try:
             from sickchill.oldbeard.show_queue import ShowQueueActions
 
@@ -1694,8 +1705,10 @@ class Home(WebRoot):
                 _("Error"),
                 _("Failed to queue TBA episode name update for {show}").format(show=show_obj.name),
             )
+        else:
+            return True
 
-        return self.redirect(f"/home/displayShow?show={show_obj.indexerid}")
+        return False
 
     def subtitleShow(self):
         show = self.get_query_argument("show")
@@ -1965,33 +1978,19 @@ class Home(WebRoot):
         except ShowDirectoryNotFoundException:
             return self._genericMessage(_("Error"), _("Can't rename episodes when the show dir is missing."))
 
-        if not eps:
-            return self.redirect("/home/displayShow?show=" + show)
-
-        main_db_con = db.DBConnection()
-        for cur_ep in eps.split("|"):
-            ep_info = cur_ep.split("x")
-
-            # this is probably the worst possible way to deal with double eps, but I've kinda painted myself into a corner here with this stupid database
-            ep_result = main_db_con.select("SELECT location FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?", [show, ep_info[0], ep_info[1]])
-            if not ep_result:
-                logger.warning(f"Unable to find an episode for {show}: {cur_ep} , skipping")
-                continue
-            related_eps_result = main_db_con.select(
-                "SELECT season, episode FROM tv_episodes WHERE location = ? AND episode != ?", [ep_result[0]["location"], ep_info[1]]
-            )
-
-            root_ep_obj = show_obj.get_episode(ep_info[0], ep_info[1])
-            root_ep_obj.related_episodes = []
-
-            for cur_related_ep in related_eps_result:
-                related_ep_obj = show_obj.get_episode(cur_related_ep["season"], cur_related_ep["episode"])
-                if related_ep_obj not in root_ep_obj.related_episodes:
-                    root_ep_obj.related_episodes.append(related_ep_obj)
-
-            root_ep_obj.rename()
+        self._rename_episodes(show_obj, eps.split("|"))
 
         return self.redirect("/home/displayShow?show=" + show)
+
+    @staticmethod
+    def _rename_episodes(show_obj, episodes):
+        """
+        Rename episode files (with their multi-episode siblings) to match the naming pattern.
+
+        :param show_obj: Show the episodes belong to
+        :param episodes: Iterable of "SxE" strings
+        """
+        show_obj.rename_episode_files(episodes)
 
     def manual_search_show_releases(self):
         show = self.get_query_argument("show")
