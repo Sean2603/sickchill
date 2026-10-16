@@ -21,6 +21,7 @@ trueHD = re.compile(r"\.TrueHD\.")
 # Codecs
 avc = re.compile(r"([xh].?26[45]|AVC)", re.IGNORECASE)
 xvid = re.compile(r"(xvid|divx)", re.IGNORECASE)
+av1 = re.compile(r"\bav1\b", re.IGNORECASE)
 mpeg = re.compile(r"(mpeg-?2)", re.IGNORECASE)
 
 # anime

@@ -26,6 +26,7 @@ class EpisodeTags(object):
             "avc": tags.avc,
             "mpeg": tags.mpeg,
             "xvid": tags.xvid,
+            "av1": tags.av1,
             "netflix": tags.netflix,
             "amazon": tags.amazon,
             "hevc": tags.hevc,
@@ -232,6 +233,17 @@ class EpisodeTags(object):
         :returns: an empty string if not found
         """
         attr = "mpeg"
+        match = self._get_match_obj(attr)
+        return "" if not match else match.group()
+
+    @property
+    def av1(self):
+        """
+        The av1 tag found in the name
+
+        :returns: an empty string if not found
+        """
+        attr = "av1"
         match = self._get_match_obj(attr)
         return "" if not match else match.group()
 

@@ -29,6 +29,8 @@ class QualityStringTests(unittest.TestCase):
             "Test.Show.S01E02 WEB-DL H 264-GROUP",
             "Test.Show.S01E02_WEB-DL_H_264-GROUP",
             "Test.Show.S01E02.WEB-DL.AAC2.0.H264-GROUP",
+            "Test.Show.S01E02.XviD-GROUP",
+            "Test.Show.S01E02.XviD-GROUP.EZTV",
         ],
         "sd_dvd": [
             "Test.Show.S01E02.480P.DVDrip.HEVC.X265",
@@ -45,7 +47,12 @@ class QualityStringTests(unittest.TestCase):
             "Test.Show.S01E02.BDRIP.WS.DiVX-GROUP",
             "Test.Show.S01E02.BDRIP.WS.x264-GROUP",
         ],
-        "hd_tv": ["Test.Show.S01E02.720p.HDTV.x264-GROUP", "Test.Show.S01E02.HR.WS.PDTV.x264-GROUP"],
+        "hd_tv": [
+            "Test.Show.S01E02.720p.HDTV.x264-GROUP",
+            "Test.Show.S01E02.HR.WS.PDTV.x264-GROUP",
+            "Test.Show.S01E02.720p.x264-GROUP",
+            "Test.Show.S01E02.720p.HEVC.x265-GROUP",
+        ],
         "raw_hd_tv": [
             "Test.Show.S01E02.720p.HDTV.DD5.1.MPEG2-GROUP",
             "Test.Show.S01E02.1080i.HDTV.DD2.0.MPEG2-GROUP",
@@ -53,7 +60,11 @@ class QualityStringTests(unittest.TestCase):
             "Test Show - S01E02 - 1080i HDTV MPA1.0 H.264 - GROUP",
             "Test.Show.S01E02.1080i.HDTV.DD.5.1.h264-GROUP",
         ],
-        "full_hd_tv": ["Test.Show.S01E02.1080p.HDTV.x264-GROUP"],
+        "full_hd_tv": [
+            "Test.Show.S01E02.1080p.HDTV.x264-GROUP",
+            "Test.Show.S01E02.1080p.x265-GROUP",
+            "Test.Show.S01E02.1080p.AV1.10bit-GROUP",
+        ],
         "hd_web_dl": [
             "Test.Show.S01E02.720p.WEB-DL-GROUP",
             "Test.Show.S01E02.720p.WEBRip-GROUP",

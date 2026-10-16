@@ -353,8 +353,8 @@ class Quality(object):
                 # WEB-DL
                 elif ep.itunes or ep.amazon or ep.netflix or ep.web:
                     result = (Quality.HDWEBDL, Quality.FULLHDWEBDL)[full_res]
-                # HDTV
-                elif ep.tv == "hd" or ep.hevc or ep.trueHD:
+                # HDTV, including scene encodes that name only a codec (720p.x264, 1080p.AV1)
+                elif ep.tv == "hd" or ep.avc or ep.av1 or ep.trueHD:
                     result = (Quality.HDTV, Quality.FULLHDTV)[full_res]  # 1080 HDTV h264
                 # MPEG2 encoded
                 elif all([full_res, ep.tv == "hd", ep.mpeg]) or all([not full_res, ep.tv == "hd", ep.mpeg]):
@@ -367,12 +367,12 @@ class Quality(object):
             result = Quality.HDTV
 
         # Is it SD?
-        elif ep.xvid or ep.avc:
+        elif ep.xvid or ep.avc or ep.av1:
             # SD DVD
             if ep.dvd or ep.bluray:
                 result = Quality.SDDVD
-            # SDTV
-            elif ep.res == "480p" or any([ep.tv, ep.sat, ep.web]):
+            # SDTV, including scene encodes that name only a codec (XviD-GROUP)
+            else:
                 result = Quality.SDTV
         elif ep.dvd:
             # SD DVD
