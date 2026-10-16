@@ -30,7 +30,7 @@ $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 $sha = (git rev-parse HEAD).Trim()
 # Label builds with uncommitted changes so Help & Info doesn't claim a commit it doesn't match
 $label = $branch
-if (git status --porcelain) {
+if (git status --porcelain --untracked-files=no) {
     $label = "$branch-dirty"
     Write-Warning "Uncommitted changes: the image will show branch '$label' in Help & Info"
 }
