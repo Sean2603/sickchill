@@ -26,7 +26,7 @@ class Notifier(object):
             return False
 
         try:
-            response = requests.post(url, params=params, headers=self._make_headers(emby_apikey))
+            response = requests.post(url, params=params, headers=self._make_headers(emby_apikey), timeout=30)
             if response:
                 logger.debug(_("EMBY: HTTP response: {content}").format(content=response.content))
             response.raise_for_status()
@@ -47,7 +47,7 @@ class Notifier(object):
         url = urljoin(settings.EMBY_HOST, "/Items")
         try:
             get_path_params.update({"AnyProviderIdEquals": "tvdb.{id}".format(id=tvdbid)})
-            items_response = requests.get(url, params=get_path_params, headers=self._make_headers())
+            items_response = requests.get(url, params=get_path_params, headers=self._make_headers(), timeout=30)
             items_response.raise_for_status()
             if items_response.json()["TotalRecordCount"] == 1:
                 return items_response.json()["Items"][0]["Path"]
@@ -89,7 +89,7 @@ class Notifier(object):
                 else:
                     url = urljoin(settings.EMBY_HOST, "emby/Library/Refresh")
 
-                response = requests.post(url, json=params, headers=self._make_headers())
+                response = requests.post(url, json=params, headers=self._make_headers(), timeout=30)
 
                 response.raise_for_status()
                 logger.debug(_("EMBY: HTTP status: {status_code}, response: {content}").format(status_code=response.status_code, content=response.content))

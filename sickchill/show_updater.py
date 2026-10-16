@@ -171,11 +171,19 @@ class ShowUpdater(object):
         from sickchill.tv import TVShow
 
         queued = []
-        for show_id in TVShow.tba_episode_report():
+        renamed = 0
+        for show_id, entry in TVShow.tba_episode_report().items():
             if show_id in full_update_ids:
                 continue
             show_obj = Show.find(settings.show_list, show_id)
             if not show_obj or show_obj.paused:
+                continue
+            if not entry["tba"]:
+                # Titles are already known, so only the files need renaming: do it locally, no indexer request
+                try:
+                    renamed += show_obj.rename_tba_files()
+                except Exception as error:
+                    logger.warning(f"Daily TBA file rename failed for {show_obj.name}: {error}")
                 continue
             try:
                 settings.showQueueScheduler.action.download_tba_names(show_obj, front=False, notify=False)
@@ -187,6 +195,8 @@ class ShowUpdater(object):
 
         if queued:
             logger.info(f"ShowUpdater queued TBA refresh for {len(queued)} show(s): {', '.join(queued)}")
+        if renamed:
+            logger.info(f"ShowUpdater renamed {renamed} TBA-named file(s)")
 
     @staticmethod
     def _bump_next_start_minute():

@@ -165,7 +165,7 @@ class DiscordTask(generic_queue.QueueItem):
         headers = CaseInsensitiveDict({"Content-Type": "application/json"})
         message_data = json.dumps(dict(embeds=[self.embed], username=discord_name, avatar_url=avatar_icon, content=discord_content))
         try:
-            r = requests.post(discord_webhook, data=message_data, headers=headers)
+            r = requests.post(discord_webhook, data=message_data, headers=headers, timeout=30)
             r.raise_for_status()
         except requests.exceptions.ConnectionError as error:
             logger.info("Could not reach the webhook url")
@@ -179,7 +179,7 @@ class DiscordTask(generic_queue.QueueItem):
             retry_after = error.response.headers.get("X-RateLimit-Reset-After")
             logger.info(f"Discord rate limiting, retrying after {retry_after} seconds")
             time.sleep(int(error.response.headers.get("X-RateLimit-Reset-After")) + 1)
-            r = requests.post(discord_webhook, data=message_data, headers=headers)
+            r = requests.post(discord_webhook, data=message_data, headers=headers, timeout=30)
             r.raise_for_status()
         except Exception as error:
             logger.exception(f"Error Sending Discord message: {error}")

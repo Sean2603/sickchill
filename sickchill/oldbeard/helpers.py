@@ -1320,7 +1320,7 @@ def download_file(url, filename, session=None, headers=None, **kwargs):  # pylin
         hooks, cookies, verify, proxies = request_defaults(kwargs)
 
         with closing(
-            session.get(url, allow_redirects=True, stream=True, verify=verify, headers=headers, cookies=cookies, hooks=hooks, proxies=proxies)
+            session.get(url, allow_redirects=True, stream=True, verify=verify, headers=headers, cookies=cookies, hooks=hooks, proxies=proxies, timeout=60)
         ) as resp:
             resp.raise_for_status()
 

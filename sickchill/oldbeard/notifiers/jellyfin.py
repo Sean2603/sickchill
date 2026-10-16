@@ -29,7 +29,7 @@ class Notifier(object):
         url = urljoin(host or settings.JELLYFIN_HOST, "System/Endpoint")
 
         try:
-            response = requests.get(url, headers=self._make_headers(jellyfin_apikey))
+            response = requests.get(url, headers=self._make_headers(jellyfin_apikey), timeout=30)
             if response:
                 logger.debug(_("JELLYFIN: HTTP response: {content}").format(content=response.content))
             response.raise_for_status()
@@ -59,7 +59,7 @@ class Notifier(object):
                 url = urljoin(settings.JELLYFIN_HOST, "Library/Refresh")
 
             try:
-                response = requests.post(url, params=params, headers=self._make_headers())
+                response = requests.post(url, params=params, headers=self._make_headers(), timeout=30)
                 response.raise_for_status()
                 logger.debug(_("JELLYFIN: HTTP status: {status_code}, response: {content}").format(status_code=response.status_code, content=response.content))
                 return True

@@ -72,7 +72,7 @@ class Notifier(object):
 
         headers = CaseInsensitiveDict({"Content-Type": "application/json"})
         try:
-            r = requests.put(url, data=json.dumps(jsonMessage), headers=headers)
+            r = requests.put(url, data=json.dumps(jsonMessage), headers=headers, timeout=30)
             r.raise_for_status()
 
         except Exception as error:

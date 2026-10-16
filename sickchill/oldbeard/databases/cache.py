@@ -118,3 +118,16 @@ class UniqueSceneNamesIndex(AddShowDirMtime):
         self.connection.action("CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_names_indexer_name ON scene_names (indexer_id, name)")
         if self.get_db_version() < 5:
             self.increment_db_version()
+
+
+class AddResultsLookupIndexes(UniqueSceneNamesIndex):
+    """Index the per-episode and propers lookups on results, which otherwise scan the whole provider slice."""
+
+    def test(self):
+        return self.has_index("idx_results_provider_show") and self.has_index("idx_results_provider_time") and self.get_db_version() >= 6
+
+    def execute(self):
+        self.connection.action("CREATE INDEX IF NOT EXISTS idx_results_provider_show ON results (provider, indexerid, season)")
+        self.connection.action("CREATE INDEX IF NOT EXISTS idx_results_provider_time ON results (provider, time)")
+        if self.get_db_version() < 6:
+            self.increment_db_version()

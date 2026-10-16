@@ -97,7 +97,7 @@ class TVDBv4Client:
         if retry_after:
             # RFC 7231: delta-seconds
             try:
-                return max(0.0, float(retry_after))
+                return min(60.0, max(0.0, float(retry_after)))
             except (TypeError, ValueError):
                 pass
             # RFC 7231: HTTP-date
@@ -107,7 +107,7 @@ class TVDBv4Client:
                     # Naive HTTP-date is GMT per RFC
                     when = when.replace(tzinfo=timezone.utc)
                 delay = (when - datetime.now(timezone.utc)).total_seconds()
-                return max(0.0, delay)
+                return min(60.0, max(0.0, delay))
             except (TypeError, ValueError, IndexError, OverflowError, OSError):
                 pass
         # attempt 0 → 1s, 1 → 2s, 2 → 4s (cap 10s)

@@ -49,6 +49,7 @@ class Notifier(object):
                 rocketchat_webhook,
                 data=json.dumps(dict(text=message, attachments=(dict(icon_emoji=rocketchat_icon_emoji, author_icon=self.ROCKETCHAT_ICON_URL)))),
                 headers=headers,
+                timeout=30,
             )
             r.raise_for_status()
         except Exception as error:
