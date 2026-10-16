@@ -69,7 +69,9 @@ def _mediainfo_screen_size(filename):
     """
     try:
         if mediainfo:
-            _media_info = mediainfo.parse(filename)
+            # Headers only: dimensions are in the container header, and a full parse reads
+            # far more of the file (slow on large files / network shares)
+            _media_info = mediainfo.parse(filename, parse_speed=0.0)
             for track in _media_info.tracks:
                 if track.track_type == "Video":
                     return track.width, track.height
