@@ -92,9 +92,13 @@ class RSSTorrentMixin:
             if seeders_tag:
                 seeders = try_int(seeders_tag.get_text(strip=True))
 
-        attribute = item.find(["newznab:attr", "torznab:attr"], attrs={"name": ["leechers", "peers"]})
+        attribute = item.find(["newznab:attr", "torznab:attr"], attrs={"name": "leechers"})
+        peers_attribute = item.find(["newznab:attr", "torznab:attr"], attrs={"name": "peers"})
         if attribute:
             leechers = try_int(attribute["value"])
+        elif peers_attribute:
+            # Torznab "peers" is seeders + leechers
+            leechers = max(try_int(peers_attribute["value"]) - try_int(seeders), 0)
         else:
             leechers_tag = item.find(["peers", "leechers", "nyaa:leechers", "nyaa:peers"])
             if leechers_tag:
