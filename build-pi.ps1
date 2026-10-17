@@ -35,8 +35,10 @@ if (git status --porcelain --untracked-files=no) {
     Write-Warning "Uncommitted changes: the image will show branch '$label' in Help & Info"
 }
 $baseImage = "sickchill:base-arm64"
-$localImage = "sickchill:$branch"
-$remoteImage = "ghcr.io/sean2603/sickchill:$branch"
+# Docker tags cannot contain "/", so feature branches like ui/foo are tagged ui-foo
+$tag = $branch -replace "/", "-"
+$localImage = "sickchill:$tag"
+$remoteImage = "ghcr.io/sean2603/sickchill:$tag"
 
 if ($Base) {
     docker buildx inspect sc *> $null
@@ -62,7 +64,7 @@ if ($Push) {
     Write-Host "Pushed $remoteImage ($label@$($sha.Substring(0,12))). In Portainer: redeploy with Re-pull image on."
 } else {
     New-Item -ItemType Directory -Force build | Out-Null
-    $tar = "build\sickchill-$branch.tar"
+    $tar = "build\sickchill-$tag.tar"
     docker save $localImage -o $tar
     if ($LASTEXITCODE -ne 0) { throw "docker save failed" }
     Write-Host "Saved $tar ($label@$($sha.Substring(0,12))). In Portainer: Images > Import, then redeploy with Re-pull image off."
